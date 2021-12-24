@@ -1,0 +1,96 @@
+version: '1.0'
+
+stages:
+- unittest
+- build
+- deploy
+- smoketest
+
+steps:
+  main_clone:
+    title: 'Cloning main repository...'
+    type: git-clone
+    repo: '${{CF_REPO_OWNER}}/${{CF_REPO_NAME}}'
+    revision: '${{CF_REVISION}}'
+
+  unitTests:
+    title: Running Unit tests
+    stage: unittest
+    image: node:12.19.0-alpine3.9
+    commands:
+    - npm run tests
+    - echo $CF_REVISION
+    - echo $CF_BRANCH_TAG_NORMALIZED
+        
+  webDockerImage:
+    title: Building Web Docker Image
+    type: build
+    stage: build
+    image_name: stargazer-lily
+    working_directory: ${{main_clone}}
+    tag: ${{CF_SHORT_REVISION}}
+    dockerfile: Dockerfile
+    
+  fetchChart:
+    image: codefresh/cfstep-helm:2.9.0
+    stage: build
+    working_directory: /codefresh/volume
+    commands:
+      - export HELM_REPO_ACCESS_TOKEN=${{CF_API_KEY}}
+      - export HELM_REPO_AUTH_HEADER=Authorization
+      - helm repo add codefresh ${{CF_CTX_CF_HELM_DEFAULT_URL}}
+      - helm fetch codefresh/stargazer-lily
+      - rm -rf stargazer-lily/
+      - ls -al
+      - tar -zxvf stargazer-lily-0.1.2.tgz
+    
+  updateChart:
+    image: mikefarah/yq
+    stage: build
+    working_directory: /codefresh/volume
+    commands:
+      - ls
+      - yq w -i stargazer-lily/values.yaml image.tag ${{CF_SHORT_REVISION}}
+  
+  pushChart:
+    image: codefresh/cfstep-helm:2.9.0
+    stage: build
+    working_directory: /codefresh/volume
+    commands:
+      - export HELM_REPO_ACCESS_TOKEN=${{CF_API_KEY}}
+      - export HELM_REPO_AUTH_HEADER=Authorization
+      - helm repo add codefresh ${{CF_CTX_CF_HELM_DEFAULT_URL}}
+      - helm repo update
+      - helm package stargazer-lily/ 
+      - helm push stargazer-lily/ codefresh
+            
+  createNamespace:
+    title: Create dyn namespace
+    stage: deploy
+    image: codefresh/kube-helm:master
+    fail_fast: false
+    commands:
+     - kubectl config use-context 'your-first-cluster-1@My First Project' 
+     - kubectl create namespace ${{CF_BRANCH_TAG_NORMALIZED}}-${{CF_SHORT_REVISION}}
+  
+  DeployApiToNamespace:
+    stage: deploy
+    image: codefresh/cfstep-helm:2.9.0
+    environment:
+      - CHART_REF=stargazer-lily
+      - RELEASE_NAME=stargazer-lily-${{CF_SHORT_REVISION}}
+      - KUBE_CONTEXT=your-first-cluster-1@My First Project
+      - NAMESPACE=${{CF_BRANCH_TAG_NORMALIZED}}-${{CF_SHORT_REVISION}}
+
+  smokeTest:
+    title: Smoke test
+    stage: smoketest
+    image: codefresh/kube-helm:master
+    commands:
+     - kubectl config use-context 'your-first-cluster-1@My First Project'
+     - export NODE_IP=`kubectl get nodes -o jsonpath='{ $.items[*].status.addresses[?(@.type=="ExternalIP")].address }'`
+     - echo $NODE_IP
+     - export NODE_PORT=`kubectl get -o json services -o jsonpath="{.items[?(@.metadata.name==\"wordsmith-demo-${CF_SHORT_VERSION}\")].spec.ports[0].nodePort}" --namespace "${CF_BRANCH_TAG_NORMALIZED}-${CF_SHORT_REVISION}"`
+     - echo $NODE_PORT
+     - curl -X POST -H "Content-Type: application/json" -d '{"data": "Hello Petal Card!"}' http://${NODE_IP}:${NODE_PORT}
+      

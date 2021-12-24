@@ -4,7 +4,7 @@ import axios from 'axios';
 
 @Injectable()
 export class StringsService {
-    private readonly CAPS_URL = 'HTTP://API.SHOUTCLOUD.IO/V1/SHOUT';
+    private readonly CAPS_URL = process.env.CAPS_URL || 'HTTP://API.SHOUTCLOUD.IO/V1/SHOUT';
     constructor() {}
 
     async getResString(reverseCapDto: ReversecapStringDto): Promise<string> {
