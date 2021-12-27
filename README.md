@@ -58,15 +58,43 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
-## Support
+## Considerations for API
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Better error return from API
+API on initial implementation is returning a string with an error description when third party service comes back with error. My implementation should return proper response status codes on errors caught in backend.
 
-## Stay in touch
+### Retry logic on API
+To improve API's reliability, my code should implement some kind of retry logic towards the caps third party service. This retry logic usually goes associated with an outbound rate limiting technique to maintain outbound retries within accepted limits. (In javascript would have used octokit)
 
-- Author - [Kamil Myśliwiec](https://kamilmysliwiec.com)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+### Inbound Rate limiting
+API should implement a rate limiting algorithm for enforcement of acceptable limits on inbound requests. 
+
+### Structured logging
+Code is logging to console only. My code should introduce the use of a logging library for proper error level logging and easy log aggregation on deployment infrastrcuture.
+
+### Testing
+Any serious software develpment effort should include Unit testing and possibly some E2E testing simulating HTTP requests within the different services in our app.
+
+## Considerations for Deployment Automation
+
+The deployment uses a very simple Helm Chart to deploy on GKE through a Codefresh pipeline `ci/codefrsh.yml` . The pipeline outlines 5 stages and builds a Docker image that is pushed to GCR to be pulled from the K8s cluster. This pipeline considers a single environment (Prod) so the pipeline could potentially be triggered from a GH release. 
+
+A more holistic approach would either promote an image through different environments or add conditionals in the chart logic to target different settings (Resources and Limits for example) depending on what environment the trigger is targeting.
+
+The chart is kept on a Chart repo and deployments to an environment are kept in source control by fetching and updating the chart before applying the release (Poor man's GitOps approach).
+
+Service uses 3 stateless replicas for scalability and redundance. This can be improved by configuring HPA (Pod based) on the K8s cluster to  allocate only the resources necessary and then replicas will be added or removed based on a cluster calculated ratio of used resources (The pod needs to be configured with proper resource requests and limits).
+
+Some other aspects to consider within this pipeline would be adding:
+
+* Integration testing
+* Vulnerability scanning
+* TLS termination
+
+Log aggregation would be handled by in cluster infra such as fluentd and a timeseries DB.
+
+Application observability can also be added in the form of metrics and would tipically be handled by deploying Prometheus DB in a cluster namespace. The team then can decide on meaningful metrics to reflect application state and display them with the tool of preference (eg. Grafana).
+
 
 ## License
 
